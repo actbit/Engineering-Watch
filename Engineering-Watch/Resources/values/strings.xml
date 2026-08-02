@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">EWatch</string>
+    <string name="app_text">Engineering-Watch</string>
+    <string name="tab_editor">文字盤</string>
+    <string name="tab_connect">接続</string>
+    <string name="tab_settings">設定</string>
+</resources>
