@@ -305,6 +305,23 @@ class ServerCallbacks : public BLEServerCallbacks {
     }
 };
 
+// ペアリング受け入れ (Androidのペアリング要求に応答)
+class EWatchSecurityCallbacks : public BLESecurityCallbacks {
+    uint32_t onPassKeyRequest() override { return 123456; }
+    void onPassKeyNotify(uint32_t pass_key) override {
+        Serial.printf("[ble] passkey: %06u\n", pass_key);
+    }
+    bool onConfirmPIN(uint32_t pass_key) override { return true; }
+    bool onSecurityRequest() override { return true; }
+    void onAuthenticationComplete(esp_ble_auth_cmpl_t auth_cmpl) override {
+        if (auth_cmpl.success) {
+            Serial.println("[ble] pairing complete");
+        } else {
+            Serial.println("[ble] pairing failed");
+        }
+    }
+};
+
 class ChCallbacks : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic* c) override {
         std::string val = c->getValue();
@@ -336,6 +353,7 @@ void ble_init() {
 
     BLEDevice::init(name);
     BLEDevice::setMTU(517);
+    BLEDevice::setSecurityCallbacks(new EWatchSecurityCallbacks());
     pServer = BLEDevice::createServer();
     pServer->setCallbacks(new ServerCallbacks());
 

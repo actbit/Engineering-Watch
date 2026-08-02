@@ -89,6 +89,29 @@ public class BleManager : BluetoothGattCallback, BluetoothAdapter.ILeScanCallbac
         Disconnect();
         await Task.Delay(100);
         _connected = false;
+
+        // ---- アプリからのペアリング ----
+        // 未ペアリングなら Android のペアリングダイアログが表示される
+        // (パスキー表示の場合、時計側の既定パスキーは 123456)
+        try
+        {
+            if (device.BondState != Bond.Bonded)
+            {
+                LogMsg("ペアリング要求... (スマホにダイアログが出ます)");
+                device.CreateBond();
+                for (int i = 0; i < 150 && device.BondState != Bond.Bonded; i++)
+                    await Task.Delay(100);
+                if (device.BondState == Bond.Bonded)
+                    LogMsg("ペアリング完了");
+                else
+                    LogMsg("ペアリングが完了しませんでした (接続は続行します)");
+            }
+        }
+        catch (Exception ex)
+        {
+            LogMsg("ペアリング: " + ex.Message);
+        }
+
         _gatt = device.ConnectGatt(Application.Context, false, this);
         LogMsg($"接続中: {device.Name} ...");
     }

@@ -1,8 +1,10 @@
+using System;
+using System.Collections.Generic;
+using System.Text.Json;
 using Android.App;
 using Android.Content;
 using Android.Service.Notification;
 using Engineering_Watch.BLE;
-using System.Text.Json;
 
 namespace Engineering_Watch.Notifications;
 
@@ -21,6 +23,18 @@ public class NotificationForwardService : NotificationListenerService
 {
     private static bool _connected;
     public static bool ListenerConnected => _connected;
+
+    /// <summary>キャプチャした通知 (アプリの通知タブ表示用)</summary>
+    public sealed record CapturedNotification(string App, string Title, string Text, long When);
+
+    private static readonly object LogLock = new();
+    private static readonly List<CapturedNotification> Log = new();
+    public static event Action? NotificationsChanged;
+
+    public static IReadOnlyList<CapturedNotification> GetNotifications()
+    {
+        lock (LogLock) return Log.ToArray();
+    }
 
     public override void OnListenerConnected() => _connected = true;
 
@@ -58,6 +72,14 @@ public class NotificationForwardService : NotificationListenerService
                 when = sbn.PostTime / 1000,
             });
             BleManager.Instance.SendNotification(json);
+
+            // 履歴に追加 (アプリの通知タブ表示用)
+            lock (LogLock)
+            {
+                Log.Insert(0, new CapturedNotification(app, title, text, sbn.PostTime));
+                while (Log.Count > 50) Log.RemoveAt(Log.Count - 1);
+            }
+            NotificationsChanged?.Invoke();
         }
         catch { /* 通知転送エラーは無視 (ログを汚さない) */ }
     }

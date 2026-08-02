@@ -21,6 +21,7 @@ namespace Engineering_Watch
 
         private EditorTabView? _editorTab;
         private ConnectionTabView? _connectTab;
+        private NotificationTabView? _notifTab;
         private SettingsTabView? _settingsTab;
         private FrameLayout? _content;
         private LinearLayout[]? _tabItems;
@@ -49,10 +50,10 @@ namespace Engineering_Watch
             // ---- タブバー (下線インジケータ付き) ----
             var tabBar = new LinearLayout(this) { Orientation = Orientation.Horizontal };
             tabBar.SetBackgroundColor(UiTheme.Surface);
-            _tabItems = new LinearLayout[3];
-            _tabIndicators = new View[3];
-            var names = new[] { "文字盤", "接続", "設定" };
-            for (int i = 0; i < 3; i++)
+            _tabItems = new LinearLayout[4];
+            _tabIndicators = new View[4];
+            var names = new[] { "文字盤", "接続", "通知", "設定" };
+            for (int i = 0; i < 4; i++)
             {
                 int idx = i;
                 var item = new LinearLayout(this) { Orientation = Orientation.Vertical };
@@ -84,9 +85,11 @@ namespace Engineering_Watch
 
             _editorTab = new EditorTabView(this);
             _connectTab = new ConnectionTabView(this);
+            _notifTab = new NotificationTabView(this);
             _settingsTab = new SettingsTabView(this);
             _content.AddView(_editorTab);
             _content.AddView(_connectTab);
+            _content.AddView(_notifTab);
             _content.AddView(_settingsTab);
 
             SelectTab(0);
@@ -97,14 +100,15 @@ namespace Engineering_Watch
         {
             if (_editorTab != null) _editorTab.Visibility = index == 0 ? ViewStates.Visible : ViewStates.Gone;
             if (_connectTab != null) _connectTab.Visibility = index == 1 ? ViewStates.Visible : ViewStates.Gone;
+            if (_notifTab != null) _notifTab.Visibility = index == 2 ? ViewStates.Visible : ViewStates.Gone;
             if (_settingsTab != null)
             {
-                _settingsTab.Visibility = index == 2 ? ViewStates.Visible : ViewStates.Gone;
-                if (index == 2) _settingsTab.RefreshNotifStatus();
+                _settingsTab.Visibility = index == 3 ? ViewStates.Visible : ViewStates.Gone;
+                if (index == 3) _settingsTab.RefreshNotifStatus();
             }
             if (_tabItems != null && _tabIndicators != null)
             {
-                for (int i = 0; i < 3; i++)
+                for (int i = 0; i < 4; i++)
                 {
                     bool sel = i == index;
                     var label = (TextView)_tabItems[i].GetChildAt(0);
