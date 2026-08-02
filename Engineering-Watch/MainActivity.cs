@@ -25,6 +25,16 @@ namespace Engineering_Watch
         private FrameLayout? _content;
         private LinearLayout[]? _tabItems;
         private View[]? _tabIndicators;
+        private TimeChangeReceiver? _timeReceiver;
+
+        // タイムゾーン/時刻変更を検知して時計へ再同期 (海外移動時など)
+        private class TimeChangeReceiver : BroadcastReceiver
+        {
+            public override void OnReceive(Context? context, Intent? intent)
+            {
+                BleManager.Instance.SendTimeSync();
+            }
+        }
 
         protected override void OnCreate(Bundle? savedInstanceState)
         {
@@ -102,6 +112,30 @@ namespace Engineering_Watch
                     label.SetTypeface(null, sel ? TypefaceStyle.Bold : TypefaceStyle.Normal);
                     _tabIndicators[i].Visibility = sel ? ViewStates.Visible : ViewStates.Invisible;
                 }
+            }
+        }
+
+        protected override void OnResume()
+        {
+            base.OnResume();
+            // タイムゾーン/時刻の変更を検知して時計へ自動再同期
+            if (_timeReceiver == null)
+            {
+                _timeReceiver = new TimeChangeReceiver();
+                var filter = new IntentFilter();
+                filter.AddAction(Intent.ActionTimezoneChanged);
+                filter.AddAction(Intent.ActionTimeChanged);
+                RegisterReceiver(_timeReceiver, filter);
+            }
+        }
+
+        protected override void OnPause()
+        {
+            base.OnPause();
+            if (_timeReceiver != null)
+            {
+                UnregisterReceiver(_timeReceiver);
+                _timeReceiver = null;
             }
         }
 

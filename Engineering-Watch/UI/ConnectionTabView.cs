@@ -228,14 +228,7 @@ public class ConnectionTabView : LinearLayout
         _statusDetail.Text = sb.Length > 0 ? sb.ToString() : "接続しました。データを受信中...";
     }
 
-    private void SendTimeSync()
-    {
-        long utc = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        int tz = (int)TimeZoneInfo.Local.GetUtcOffset(DateTime.Now).TotalMinutes;
-        BleManager.Instance.SendControl(
-            $"{{\"cmd\":\"time_sync\",\"utc\":{utc},\"tz\":{tz}}}");
-        AppendLog($"時刻同期送信 (tz={tz}min)");
-    }
+    private void SendTimeSync() => BleManager.Instance.SendTimeSync();
 
     private static ISharedPreferences? Prefs =>
         Application.Context.GetSharedPreferences("ewatch", FileCreationMode.Private);

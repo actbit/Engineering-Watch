@@ -155,6 +155,24 @@ public class BleManager : BluetoothGattCallback, BluetoothAdapter.ILeScanCallbac
         _connected = true;
         ConnectionChanged?.Invoke(true);
         LogMsg("準備完了 (サービス発見)");
+        // 接続直後に自動で初期設定: 時刻同期 (タイムゾーン込み) + 状態取得
+        AutoSetupOnConnect();
+    }
+
+    /// <summary>接続確立後に自動実行する初期設定</summary>
+    private void AutoSetupOnConnect()
+    {
+        SendTimeSync();
+        SendControl("{\"cmd\":\"get_status\"}");
+    }
+
+    /// <summary>現在の時刻とタイムゾーンを時計へ同期する</summary>
+    public void SendTimeSync()
+    {
+        long utc = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        int tz = (int)TimeZoneInfo.Local.GetUtcOffset(DateTime.Now).TotalMinutes;
+        SendControl($"{{\"cmd\":\"time_sync\",\"utc\":{utc},\"tz\":{tz}}}");
+        LogMsg($"時刻同期: utc={utc} tz={tz}min");
     }
 
     private static void EnableCccd(BluetoothGatt gatt, BluetoothGattCharacteristic ch)

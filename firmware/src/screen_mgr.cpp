@@ -18,19 +18,14 @@ void screen_mgr_init() {
     app.screenOn = true;
     lastActivity = millis();
 
-    if (app.tiltWake) {
-        watch.enableFeature(SensorBMA423::FEATURE_TILT, true);
-        watch.enableFeature(SensorBMA423::FEATURE_WAKEUP, true);
-        // 歩数割り込みも含めてマスクを設定 (configreFeatureInterrupt は
-        // マスク全体を上書きするため main.cpp の設定と合わせる)
-        watch.configreFeatureInterrupt(
-            SensorBMA423::INT_STEP_CNTR |
-            SensorBMA423::INT_TILT |
-            SensorBMA423::INT_WAKEUP, true);
-        Serial.println("[screen] tilt wake enabled");
-    } else {
-        watch.configreFeatureInterrupt(SensorBMA423::INT_STEP_CNTR, true);
-    }
+    // 傾き/ダブルタップの割り込みを INT1 にマップする
+    // (configreFeatureInterrupt = interruptMap。センサー本体の初期化は
+    //  main.cpp で enableAccelerometer 等を実施済み)
+    watch.configreFeatureInterrupt(
+        SensorBMA423::INT_STEP_CNTR |
+        (app.tiltWake ? (SensorBMA423::INT_TILT | SensorBMA423::INT_WAKEUP) : 0), true);
+    Serial.printf("[screen] tilt wake %s, timeout %ds\n",
+                  app.tiltWake ? "on" : "off", app.screenTimeoutS);
 }
 
 void screen_on() {

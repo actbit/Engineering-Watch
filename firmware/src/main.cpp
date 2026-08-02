@@ -45,9 +45,16 @@ void setup() {
     // RTC → システム時刻
     watch.hwClockRead();
 
-    // 歩数計 (BMA423)
-    watch.enableFeature(SensorBMA423::FEATURE_STEP_CNTR, true);
-    watch.configreFeatureInterrupt(SensorBMA423::INT_STEP_CNTR, true);
+    // BMA423 センサー初期化 (歩数計 + 傾き/ダブルタップ復帰)
+    // ※ 公式ファクトリーデモと同じシーケンスで行うこと
+    //   (enableAccelerometer を呼ばないと加速度センサーが動作せず、
+    //    傾き/ダブルタップ/歩数 の全機能が無効になる)
+    watch.configAccelerometer();
+    watch.enableAccelerometer();
+    watch.configInterrupt();
+    watch.enableFeature(SensorBMA423::FEATURE_STEP_CNTR |
+                        SensorBMA423::FEATURE_TILT |
+                        SensorBMA423::FEATURE_WAKEUP, true);
     watch.attachBMA([]() { app.bmaIrq = true; });
     watch.attachPMU([]() { app.pmuIrq = true; });
 
