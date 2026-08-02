@@ -37,15 +37,49 @@ namespace Engineering_Watch
             }
         }
 
+        // ステータスバー/ナビゲーションバーの高さ分だけルートを内側に寄せる
+        private class SystemBarInsetListener : Java.Lang.Object, View.IOnApplyWindowInsetsListener
+        {
+            public WindowInsets OnApplyWindowInsets(View v, WindowInsets insets)
+            {
+                v.SetPadding(0, insets.SystemWindowInsetTop, 0, insets.SystemWindowInsetBottom);
+                return insets.ConsumeSystemWindowInsets();
+            }
+        }
+
         protected override void OnCreate(Bundle? savedInstanceState)
         {
             base.OnCreate(savedInstanceState);
+            try
+            {
+                BuildUi();
+            }
+            catch (Exception ex)
+            {
+                // クラッシュさせずにエラー内容を画面表示 (診断用)
+                var err = new TextView(this)
+                {
+                    Text = "起動エラー:\n" + ex,
+                    TextSize = 13,
+                };
+                err.SetTextColor(Android.Graphics.Color.Rgb(0xFF, 0x77, 0x66));
+                err.SetPadding(24, 24, 24, 24);
+                SetContentView(err);
+                Android.Util.Log.Error("EWatch", ex.ToString());
+            }
+        }
 
+        private void BuildUi()
+        {
             Window!.SetStatusBarColor(UiTheme.Bg);
             Window.AddFlags(WindowManagerFlags.KeepScreenOn);
 
             var root = new LinearLayout(this) { Orientation = Orientation.Vertical };
             root.SetBackgroundColor(UiTheme.Bg);
+
+            // システムバー(ステータスバー/ナビゲーションバー)にコンテンツが重ならないよう、
+            // 実際のインセットをルートのパディングとして適用する
+            root.SetOnApplyWindowInsetsListener(new SystemBarInsetListener());
 
             // ---- タブバー (下線インジケータ付き) ----
             var tabBar = new LinearLayout(this) { Orientation = Orientation.Horizontal };
@@ -60,9 +94,16 @@ namespace Engineering_Watch
                 item.SetGravity(GravityFlags.Center);
                 item.Clickable = true;
                 item.Click += (_, _) => SelectTab(idx);
-                var label = new TextView(this) { Text = names[i], TextSize = 14, Gravity = GravityFlags.Center };
+                // ラベルは最低高さを確保して必ず表示されるようにする
+                var label = new TextView(this)
+                {
+                    Text = names[i],
+                    TextSize = 15,
+                    Gravity = GravityFlags.Center,
+                };
+                label.SetMinimumHeight((int)UiTheme.Dp(this, 44));
                 label.SetTextColor(UiTheme.TextDim);
-                label.SetPadding(0, (int)UiTheme.Dp(this, 12), 0, (int)UiTheme.Dp(this, 8));
+                label.SetTypeface(null, TypefaceStyle.Bold);
                 var indicator = new View(this);
                 indicator.SetBackgroundColor(UiTheme.Accent);
                 item.AddView(label, new LinearLayout.LayoutParams(
@@ -80,6 +121,17 @@ namespace Engineering_Watch
             _content = new FrameLayout(this);
             root.AddView(_content, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MatchParent, 0, 1f));
+
+            // ---- バージョン表示 (起動確認用。タブバーを邪魔しないよう最下部へ) ----
+            var ver = new TextView(this)
+            {
+                Text = "EWatch v0.2.0",
+                TextSize = 10,
+                Gravity = GravityFlags.Center,
+            };
+            ver.SetTextColor(UiTheme.TextDim);
+            root.AddView(ver, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MatchParent, LinearLayout.LayoutParams.WrapContent));
 
             SetContentView(root);
 
@@ -110,7 +162,7 @@ namespace Engineering_Watch
             {
                 for (int i = 0; i < 4; i++)
                 {
-                    bool sel = i == index;
+                     bool sel = i == index;
                     var label = (TextView)_tabItems[i].GetChildAt(0);
                     label.SetTextColor(sel ? UiTheme.Accent : UiTheme.TextDim);
                     label.SetTypeface(null, sel ? TypefaceStyle.Bold : TypefaceStyle.Normal);

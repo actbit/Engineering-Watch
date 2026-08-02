@@ -74,10 +74,14 @@ public class BleManager : BluetoothGattCallback, BluetoothAdapter.ILeScanCallbac
     public void OnLeScan(BluetoothDevice device, int rssi, byte[] scanRecord)
     {
         var name = device.Name ?? "";
-        if (name.StartsWith("EWatch-", StringComparison.OrdinalIgnoreCase) && !_found.Contains(device))
+        // アドレスで重複排除 (BluetoothDevice の等価比較に依存しない)
+        if (name.StartsWith("EWatch-", StringComparison.OrdinalIgnoreCase) &&
+            !_found.Any(d => d.Address == device.Address))
         {
             _found.Add(device);
             LogMsg($"発見: {name} ({device.Address})");
+            // 新しい端末が見つかったときだけ一覧を更新する
+            // (毎パケット更新すると行が再生成され、タップがキャンセルされるため)
             ScanResults?.Invoke(_found.ToList());
         }
     }

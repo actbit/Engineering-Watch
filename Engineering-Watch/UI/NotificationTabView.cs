@@ -13,7 +13,7 @@ using Engineering_Watch.Notifications;
 namespace Engineering_Watch.UI;
 
 // ============================================================
-// 通知タブ
+// 通知タブ (スクロール対応版)
 // 通知アクセスの状態 / キャプチャした通知の履歴 / テスト送信
 // ============================================================
 
@@ -21,17 +21,21 @@ public class NotificationTabView : LinearLayout
 {
     private readonly Activity _activity;
     private readonly TextView _status;
-    private readonly ListView _list;
-    private readonly List<string> _items = new();
-    private readonly ArrayAdapter<string> _adapter;
+    private readonly LinearLayout _history;
 
     public NotificationTabView(Activity activity) : base(activity)
     {
         _activity = activity;
         Orientation = Orientation.Vertical;
         SetBackgroundColor(Theme.Bg);
-        SetPadding((int)Theme.Dp(activity, 12), (int)Theme.Dp(activity, 8),
-                   (int)Theme.Dp(activity, 12), (int)Theme.Dp(activity, 4));
+
+        // ---- 全体スクロール ----
+        var scroll = new ScrollView(activity) { FillViewport = true };
+        var content = new LinearLayout(activity) { Orientation = Orientation.Vertical };
+        content.SetPadding((int)Theme.Dp(activity, 12), (int)Theme.Dp(activity, 8),
+                           (int)Theme.Dp(activity, 12), (int)Theme.Dp(activity, 16));
+        scroll.AddView(content);
+        AddView(scroll, new LayoutParams(LayoutParams.MatchParent, LayoutParams.MatchParent));
 
         // ---- ステータスカード ----
         var card = new LinearLayout(activity) { Orientation = Orientation.Vertical };
@@ -47,10 +51,10 @@ public class NotificationTabView : LinearLayout
         help.TextSize = 11;
         Theme.SetMargins(help, activity, 0, 4, 0, 0);
         card.AddView(help);
-        AddView(card);
+        content.AddView(card);
 
         // ---- 操作 ----
-        AddView(Theme.SectionHeader(activity, "操作"));
+        content.AddView(Theme.SectionHeader(activity, "操作"));
         var row1 = new LinearLayout(activity) { Orientation = Orientation.Horizontal };
         var testBtn = Theme.Button(activity, "テスト通知を送る", primary: true);
         testBtn.TextSize = 13;
@@ -61,16 +65,12 @@ public class NotificationTabView : LinearLayout
             _activity.StartActivity(new Intent(Settings.ActionNotificationListenerSettings));
         row1.AddView(testBtn, new LayoutParams(0, LayoutParams.WrapContent, 1f));
         row1.AddView(accessBtn, new LayoutParams(0, LayoutParams.WrapContent, 1f));
-        AddView(row1);
+        content.AddView(row1);
 
-        // ---- 履歴 ----
-        AddView(Theme.SectionHeader(activity, "キャプチャした通知の履歴 (最新50件)"));
-        _list = new ListView(activity);
-        _adapter = new ArrayAdapter<string>(activity, Android.Resource.Layout.SimpleListItem1, _items);
-        _list.Adapter = _adapter;
-        _list.Background = Theme.Rounded(Theme.Surface, 10, Theme.Border, 1);
-        _list.SetPadding(8, 8, 8, 8);
-        AddView(_list, new LayoutParams(LayoutParams.MatchParent, 0, 1f));
+        // ---- 履歴 (手動行。ScrollView内でも問題なし) ----
+        content.AddView(Theme.SectionHeader(activity, "キャプチャした通知の履歴 (最新50件)"));
+        _history = new LinearLayout(activity) { Orientation = Orientation.Vertical };
+        content.AddView(_history);
 
         // ---- イベント ----
         NotificationForwardService.NotificationsChanged += () =>
@@ -104,15 +104,44 @@ public class NotificationTabView : LinearLayout
 
     private void RefreshHistory()
     {
-        _items.Clear();
-        foreach (var n in NotificationForwardService.GetNotifications())
+        _history.RemoveAllViews();
+        var list = NotificationForwardService.GetNotifications();
+        if (list.Count == 0)
         {
-            var t = DateTimeOffset.FromUnixTimeMilliseconds(n.When).ToLocalTime();
-            string line = $"[{t:HH:mm}] {n.App}";
-            if (!string.IsNullOrEmpty(n.Title)) line += $" - {n.Title}";
-            _items.Add(line);
+            var empty = Theme.Label(_activity, "まだ通知をキャプチャしていません。\n通知アクセスを有効にして、実アプリの通知を待つか「テスト通知を送る」を押してください。", dim: true);
+            empty.TextSize = 12;
+            _history.AddView(empty);
+            return;
         }
-        _adapter.NotifyDataSetChanged();
+        foreach (var n in list)
+        {
+            var row = new LinearLayout(_activity) { Orientation = Orientation.Vertical };
+            row.Background = Theme.Rounded(Theme.Surface2, 10, Theme.Border, 1);
+            row.SetPadding((int)Theme.Dp(_activity, 12), (int)Theme.Dp(_activity, 8),
+                           (int)Theme.Dp(_activity, 12), (int)Theme.Dp(_activity, 8));
+
+            var t = DateTimeOffset.FromUnixTimeMilliseconds(n.When).ToLocalTime();
+            var head = Theme.Label(_activity, $"{t:HH:mm}  {n.App}");
+            head.TextSize = 12;
+            head.SetTextColor(Theme.Accent);
+            row.AddView(head);
+            if (!string.IsNullOrEmpty(n.Title))
+            {
+                var title = Theme.Label(_activity, n.Title);
+                title.TextSize = 14;
+                row.AddView(title);
+            }
+            if (!string.IsNullOrEmpty(n.Text))
+            {
+                var text = Theme.Label(_activity, n.Text, dim: true);
+                text.TextSize = 12;
+                row.AddView(text);
+            }
+
+            var lp = new LinearLayout.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent);
+            lp.SetMargins(0, 0, 0, (int)Theme.Dp(_activity, 6));
+            _history.AddView(row, lp);
+        }
     }
 
     private void SendTestNotification()

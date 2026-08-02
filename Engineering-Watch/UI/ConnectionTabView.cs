@@ -14,8 +14,8 @@ using Engineering_Watch.BLE;
 namespace Engineering_Watch.UI;
 
 // ============================================================
-// 接続タブ (改善版UI)
-// ステータスカード / デバイスリスト / コントロール / 通知
+// 接続タブ (スクロール対応版)
+// ステータスカード / デバイスリスト / コントロール / 通知 / ログ
 // ============================================================
 
 public class ConnectionTabView : LinearLayout
@@ -24,16 +24,13 @@ public class ConnectionTabView : LinearLayout
     private readonly TextView _statusTitle;
     private readonly TextView _statusDetail;
     private readonly TextView _log;
-    private readonly ListView _devices;
-    private readonly List<string> _deviceNames = new();
-    private readonly List<BluetoothDevice> _deviceObjs = new();
+    private readonly LinearLayout _deviceList;
     private readonly Button _scanBtn;
     private readonly SeekBar _brightness;
     private readonly CheckBox _notifToggle;
     private readonly StringBuilder _logBuf = new();
 
     private bool _scanning;
-    private bool _deviceCardVisible;
     private string? _lastStatus;
     private string? _lastData;
 
@@ -42,8 +39,14 @@ public class ConnectionTabView : LinearLayout
         _activity = activity;
         Orientation = Orientation.Vertical;
         SetBackgroundColor(Theme.Bg);
-        SetPadding((int)Theme.Dp(activity, 12), (int)Theme.Dp(activity, 8),
-                   (int)Theme.Dp(activity, 12), (int)Theme.Dp(activity, 4));
+
+        // ---- 全体スクロール ----
+        var scroll = new ScrollView(activity) { FillViewport = true };
+        var content = new LinearLayout(activity) { Orientation = Orientation.Vertical };
+        content.SetPadding((int)Theme.Dp(activity, 12), (int)Theme.Dp(activity, 8),
+                           (int)Theme.Dp(activity, 12), (int)Theme.Dp(activity, 16));
+        scroll.AddView(content);
+        AddView(scroll, new LayoutParams(LayoutParams.MatchParent, LayoutParams.MatchParent));
 
         // ---- ステータスカード ----
         var card = new LinearLayout(activity) { Orientation = Orientation.Vertical };
@@ -58,45 +61,42 @@ public class ConnectionTabView : LinearLayout
         _statusDetail.TextSize = 12;
         Theme.SetMargins(_statusDetail, activity, 0, 4, 0, 0);
         card.AddView(_statusDetail);
-        AddView(card);
+        content.AddView(card);
 
         // ---- スキャン ----
         _scanBtn = Theme.Button(activity, "スキャン (時計を探す)", primary: true);
         _scanBtn.TextSize = 15;
         _scanBtn.Click += (_, _) =>
         {
-            if (BleManager.Instance.Connected) { BleManager.Instance.Disconnect(); }
-            else if (_scanning) BleManager.Instance.StopScan();
-            else BleManager.Instance.StartScan();
+            if (BleManager.Instance.Connected)
+            {
+                BleManager.Instance.Disconnect();
+            }
+            else if (_scanning)
+            {
+                _scanning = false;
+                BleManager.Instance.StopScan();
+            }
+            else
+            {
+                _scanning = true;
+                BleManager.Instance.StartScan();
+            }
+            UpdateButtons();
         };
         Theme.SetMargins(_scanBtn, activity, 0, 10, 0, 0);
-        AddView(_scanBtn);
+        content.AddView(_scanBtn);
 
-        // ---- デバイスリスト ----
-        AddView(Theme.SectionHeader(activity, "見つかった時計 (タップで接続)"));
-        _devices = new ListView(activity);
-        var adapter = new ArrayAdapter<string>(activity, Android.Resource.Layout.SimpleListItem1, _deviceNames);
-        adapter.SetDropDownViewResource(Android.Resource.Layout.SimpleListItem1);
-        _devices.Adapter = adapter;
-        _devices.Background = Theme.Rounded(Theme.Surface, 10, Theme.Border, 1);
-        _devices.SetPadding(8, 8, 8, 8);
-        _devices.ItemClick += (_, e) =>
-        {
-            if (e.Position >= 0 && e.Position < _deviceObjs.Count)
-            {
-                BleManager.Instance.StopScan();
-                _ = BleManager.Instance.ConnectAsync(_deviceObjs[e.Position]);
-            }
-        };
-        _deviceCardVisible = false;
-        _devices.Visibility = ViewStates.Gone;
-        AddView(_devices, new LayoutParams(LayoutParams.MatchParent, 0, 1f));
+        // ---- デバイスリスト (手動行。ScrollView内でも問題なし) ----
+        content.AddView(Theme.SectionHeader(activity, "見つかった時計 (タップで接続)"));
+        _deviceList = new LinearLayout(activity) { Orientation = Orientation.Vertical };
+        content.AddView(_deviceList);
 
         // ---- コントロール ----
-        AddView(Theme.SectionHeader(activity, "コントロール"));
+        content.AddView(Theme.SectionHeader(activity, "コントロール"));
         var ctlRow = new LinearLayout(activity) { Orientation = Orientation.Horizontal };
         var syncBtn = Theme.Chip(activity, "時刻同期");
-        syncBtn.Click += (_, _) => SendTimeSync();
+        syncBtn.Click += (_, _) => BleManager.Instance.SendTimeSync();
         var vibBtn = Theme.Chip(activity, "振動テスト");
         vibBtn.Click += (_, _) => BleManager.Instance.SendControl("{\"cmd\":\"vibrate\",\"ms\":300}");
         var wakeBtn = Theme.Chip(activity, "画面ON");
@@ -104,7 +104,7 @@ public class ConnectionTabView : LinearLayout
         ctlRow.AddView(syncBtn);
         ctlRow.AddView(vibBtn);
         ctlRow.AddView(wakeBtn);
-        AddView(ctlRow);
+        content.AddView(ctlRow);
 
         var brRow = new LinearLayout(activity) { Orientation = Orientation.Horizontal };
         brRow.SetGravity(GravityFlags.CenterVertical);
@@ -117,10 +117,10 @@ public class ConnectionTabView : LinearLayout
             if (e.FromUser) BleManager.Instance.SendControl($"{{\"cmd\":\"brightness\",\"v\":{e.Progress}}}");
         };
         brRow.AddView(_brightness, new LayoutParams(0, LayoutParams.WrapContent, 1f));
-        AddView(brRow);
+        content.AddView(brRow);
 
         // ---- 通知 ----
-        AddView(Theme.SectionHeader(activity, "通知"));
+        content.AddView(Theme.SectionHeader(activity, "通知"));
         var nrRow = new LinearLayout(activity) { Orientation = Orientation.Horizontal };
         nrRow.SetGravity(GravityFlags.CenterVertical);
         _notifToggle = Theme.Check(activity, "通知を時計へ転送");
@@ -131,29 +131,23 @@ public class ConnectionTabView : LinearLayout
         accBtn.Click += (_, _) =>
             _activity.StartActivity(new Intent(Settings.ActionNotificationListenerSettings));
         nrRow.AddView(accBtn);
-        AddView(nrRow);
+        content.AddView(nrRow);
 
-        // ---- ログ ----
-        var scroll = new ScrollView(activity);
+        // ---- ログ (外側スクロールに任せる。入れ子ScrollViewは競合するため非スクロール枠にする) ----
+        content.AddView(Theme.SectionHeader(activity, "ログ"));
+        var logBox = new LinearLayout(activity) { Orientation = Orientation.Vertical };
+        logBox.Background = Theme.Rounded(Theme.Surface, 10, Theme.Border, 1);
+        logBox.SetPadding(8, 8, 8, 8);
         _log = Theme.Label(activity, "", dim: true);
         _log.TextSize = 11;
-        scroll.AddView(_log);
-        scroll.Background = Theme.Rounded(Theme.Surface, 10, Theme.Border, 1);
-        Theme.SetMargins(scroll, activity, 0, 8, 0, 0);
-        AddView(scroll, new LayoutParams(LayoutParams.MatchParent, 150));
+        logBox.AddView(_log);
+        content.AddView(logBox);
 
         // ---- イベント購読 ----
         var b = BleManager.Instance;
         b.Log += m => Post(() => { AppendLog(m); UpdateButtons(); });
-        b.ConnectionChanged += _ => Post(() => { UpdateStatus(); UpdateButtons(); });
-        b.ScanResults += list => Post(() =>
-        {
-            _deviceNames.Clear(); _deviceObjs.Clear();
-            foreach (var d in list) { _deviceNames.Add($"{d.Name}  ({d.Address})"); _deviceObjs.Add(d); }
-            adapter.NotifyDataSetChanged();
-            _deviceCardVisible = list.Count > 0;
-            _devices.Visibility = _deviceCardVisible ? ViewStates.Visible : ViewStates.Gone;
-        });
+        b.ConnectionChanged += _ => Post(() => { _scanning = false; UpdateStatus(); UpdateButtons(); });
+        b.ScanResults += list => Post(() => UpdateDeviceList(list));
         b.StatusJson += json => Post(() => { _lastStatus = json; UpdateStatus(); });
         b.WatchDataJson += json => Post(() => { _lastData = json; UpdateStatus(); });
 
@@ -163,6 +157,46 @@ public class ConnectionTabView : LinearLayout
     }
 
     private void Post(Action a) => _activity.RunOnUiThread(a);
+
+    // ---- デバイスリスト ----
+
+    private void UpdateDeviceList(List<BluetoothDevice> devices)
+    {
+        _deviceList.RemoveAllViews();
+        if (devices.Count == 0)
+        {
+            var empty = Theme.Label(_activity, "見つかりません。スキャン中...", dim: true);
+            empty.TextSize = 12;
+            _deviceList.AddView(empty);
+            return;
+        }
+        foreach (var d in devices)
+        {
+            var row = new LinearLayout(_activity) { Orientation = Orientation.Horizontal };
+            row.SetGravity(GravityFlags.CenterVertical);
+            row.Background = Theme.Rounded(Theme.Surface2, 10, Theme.Border, 1);
+            row.SetPadding((int)Theme.Dp(_activity, 12), (int)Theme.Dp(_activity, 10),
+                           (int)Theme.Dp(_activity, 12), (int)Theme.Dp(_activity, 10));
+            row.Clickable = true;
+            var dev = d;
+            row.Click += (_, _) =>
+            {
+                _scanning = false;
+                UpdateButtons();
+                BleManager.Instance.StopScan();
+                _ = BleManager.Instance.ConnectAsync(dev);
+            };
+            var name = Theme.Label(_activity, d.Name ?? "Unknown");
+            name.TextSize = 14;
+            row.AddView(name, new LayoutParams(0, LayoutParams.WrapContent, 1f));
+            var addr = Theme.Label(_activity, d.Address ?? "", dim: true);
+            addr.TextSize = 11;
+            row.AddView(addr);
+            var lp = new LinearLayout.LayoutParams(LayoutParams.MatchParent, LayoutParams.WrapContent);
+            lp.SetMargins(0, 0, 0, (int)Theme.Dp(_activity, 6));
+            _deviceList.AddView(row, lp);
+        }
+    }
 
     private void AppendLog(string m)
     {
@@ -227,8 +261,6 @@ public class ConnectionTabView : LinearLayout
         }
         _statusDetail.Text = sb.Length > 0 ? sb.ToString() : "接続しました。データを受信中...";
     }
-
-    private void SendTimeSync() => BleManager.Instance.SendTimeSync();
 
     private static ISharedPreferences? Prefs =>
         Application.Context.GetSharedPreferences("ewatch", FileCreationMode.Private);

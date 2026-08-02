@@ -113,7 +113,7 @@ public class EditorTabView : LinearLayout
         _propPanel = new LinearLayout(activity) { Orientation = Orientation.Vertical };
         _propScroll.AddView(_propPanel);
         Theme.SetMargins(_propScroll, activity, 0, 0, 0, 0);
-        AddView(_propScroll, new LayoutParams(LayoutParams.MatchParent, 330));
+        AddView(_propScroll, new LayoutParams(LayoutParams.MatchParent, 280));
 
         // ---- ステータス ----
         _status = Theme.Label(activity, "パレットからパーツを追加して文字盤を作成", dim: true);
@@ -184,11 +184,13 @@ public class EditorTabView : LinearLayout
         var tv = Theme.Label(_activity, label, dim: true);
         tv.SetPadding((int)Theme.Dp(_activity, 4), 0, (int)Theme.Dp(_activity, 4), 0);
         row.AddView(tv, new LayoutParams(LayoutParams.WrapContent, LayoutParams.WrapContent));
+        // スウォッチは横スクロール可能に (狭い画面で切れないように)
+        var swatchScroll = new HorizontalScrollView(_activity) { HorizontalScrollBarEnabled = false };
         var swatchRow = new LinearLayout(_activity) { Orientation = Orientation.Horizontal };
         foreach (var hex in Swatches)
         {
             var sw = new View(_activity);
-            int size = (int)Theme.Dp(_activity, 24);
+            int size = (int)Theme.Dp(_activity, 22);
             sw.Background = Theme.Rounded(ParseColor(hex, Color.White), 6, Theme.Border, 1);
             sw.Clickable = true;
             var h = hex; // クロージャ用コピー
@@ -203,6 +205,7 @@ public class EditorTabView : LinearLayout
             lp.SetMargins((int)Theme.Dp(_activity, 2), 0, (int)Theme.Dp(_activity, 2), 0);
             swatchRow.AddView(sw, lp);
         }
+        swatchScroll.AddView(swatchRow);
         var hexEdit = Theme.Edit(_activity, "#RRGGBB");
         hexEdit.TextSize = 12;
         hexEdit.SetMinimumHeight((int)Theme.Dp(_activity, 36));
@@ -214,7 +217,7 @@ public class EditorTabView : LinearLayout
             if (s.Length == 7 && s[0] == '#') { SetPartColor(p, key, s); _editor.RefreshPreview(); }
         };
         _fields[key] = hexEdit;
-        row.AddView(swatchRow, new LayoutParams(0, LayoutParams.WrapContent, 1f));
+        row.AddView(swatchScroll, new LayoutParams(0, LayoutParams.WrapContent, 1f));
         row.AddView(hexEdit, new LayoutParams(0, LayoutParams.WrapContent, 1f));
     }
 

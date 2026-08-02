@@ -33,20 +33,26 @@ public class SettingsTabView : LinearLayout
         _activity = activity;
         Orientation = Orientation.Vertical;
         SetBackgroundColor(Theme.Bg);
-        SetPadding((int)Theme.Dp(activity, 12), (int)Theme.Dp(activity, 8),
-                   (int)Theme.Dp(activity, 12), (int)Theme.Dp(activity, 4));
+
+        // ---- 全体スクロール (画面が小さいと下端が切れるため) ----
+        var scroll = new ScrollView(activity) { FillViewport = true };
+        var content = new LinearLayout(activity) { Orientation = Orientation.Vertical };
+        content.SetPadding((int)Theme.Dp(activity, 12), (int)Theme.Dp(activity, 8),
+                           (int)Theme.Dp(activity, 12), (int)Theme.Dp(activity, 16));
+        scroll.AddView(content);
+        AddView(scroll, new LayoutParams(LayoutParams.MatchParent, LayoutParams.MatchParent));
 
         // ================= WiFi =================
-        AddView(Theme.SectionHeader(activity, "WiFi (オンデマンド接続)"));
+        content.AddView(Theme.SectionHeader(activity, "WiFi (オンデマンド接続)"));
 
         _ssid = Theme.Edit(activity, "SSID (WiFi名)");
         _ssid.TextSize = 13;
-        AddView(_ssid);
+        content.AddView(_ssid);
         _pass = Theme.Edit(activity, "パスワード (1回入力すれば時計に保存)",
                            Android.Text.InputTypes.TextVariationPassword);
         _pass.TextSize = 13;
         Theme.SetMargins(_pass, activity, 0, 8, 0, 0);
-        AddView(_pass);
+        content.AddView(_pass);
 
         var importRow = new LinearLayout(activity) { Orientation = Orientation.Horizontal };
         var getSsidBtn = Theme.Chip(activity, "現在のSSID取得");
@@ -64,7 +70,7 @@ public class SettingsTabView : LinearLayout
             }
         };
         importRow.AddView(getSsidBtn, new LayoutParams(0, LayoutParams.WrapContent, 1f));
-        AddView(importRow);
+        content.AddView(importRow);
 
         var wifiRow = new LinearLayout(activity) { Orientation = Orientation.Horizontal };
         var on = Theme.Button(activity, "WiFi ON", primary: true);
@@ -85,17 +91,17 @@ public class SettingsTabView : LinearLayout
         wifiRow.AddView(off, new LayoutParams(0, LayoutParams.WrapContent, 1f));
         wifiRow.AddView(st, new LayoutParams(0, LayoutParams.WrapContent, 1f));
         Theme.SetMargins(wifiRow, activity, 0, 8, 0, 0);
-        AddView(wifiRow);
+        content.AddView(wifiRow);
 
         var note = Theme.Label(activity,
             "※ パスワードは時計に保存され次回から自動接続。時計は2.4GHz帯のみ対応 (5GHzルーターは2.4GHz接続かテザリングが必要)。接続後10分無通信で自動OFF",
             dim: true);
         note.TextSize = 11;
         Theme.SetMargins(note, activity, 2, 6, 0, 0);
-        AddView(note);
+        content.AddView(note);
 
         // ================= 画面 =================
-        AddView(Theme.SectionHeader(activity, "画面 (省電力)"));
+        content.AddView(Theme.SectionHeader(activity, "画面 (省電力)"));
 
         _tiltWake = Theme.Check(activity, "傾ける/ダブルタップで画面ON");
         _tiltWake.TextSize = 13;
@@ -105,7 +111,7 @@ public class SettingsTabView : LinearLayout
                 $"{{\"cmd\":\"tilt_wake\",\"on\":{(e.IsChecked ? "true" : "false")}}}");
             SetPref("tilt_wake", e.IsChecked);
         };
-        AddView(_tiltWake);
+        content.AddView(_tiltWake);
 
         var tRow = new LinearLayout(activity) { Orientation = Orientation.Horizontal };
         tRow.SetGravity(GravityFlags.CenterVertical);
@@ -128,44 +134,44 @@ public class SettingsTabView : LinearLayout
             _timeoutChips[i] = chip;
             tRow.AddView(chip);
         }
-        AddView(tRow);
+        content.AddView(tRow);
 
         var wakeBtn = Theme.Chip(activity, "画面ON (テスト)");
         wakeBtn.Click += (_, _) => BleManager.Instance.SendControl("{\"cmd\":\"wake\"}");
-        AddView(wakeBtn);
+        content.AddView(wakeBtn);
 
         // ================= 通知 =================
-        AddView(Theme.SectionHeader(activity, "通知転送"));
+        content.AddView(Theme.SectionHeader(activity, "通知転送"));
 
         _notifStatus = Theme.Label(activity, "", dim: true);
         _notifStatus.TextSize = 13;
         _notifStatus.SetTextColor(Theme.Warn);
-        AddView(_notifStatus);
+        content.AddView(_notifStatus);
 
         var nBtn = Theme.Button(activity, "通知アクセスを開く");
         nBtn.TextSize = 13;
         nBtn.Click += (_, _) =>
             _activity.StartActivity(new Intent(Settings.ActionNotificationListenerSettings));
-        AddView(nBtn);
+        content.AddView(nBtn);
 
         var nHelp = Theme.Label(activity,
             "有効にすると、すべてのアプリの通知がBLE経由で時計に届きます (振動+バナー表示)",
             dim: true);
         nHelp.TextSize = 11;
         Theme.SetMargins(nHelp, activity, 2, 6, 0, 0);
-        AddView(nHelp);
+        content.AddView(nHelp);
 
         // ================= 情報 =================
-        AddView(Theme.SectionHeader(activity, "情報"));
+        content.AddView(Theme.SectionHeader(activity, "情報"));
         var about = Theme.Label(activity,
-            "Engineering-Watch v0.1.0\nT-Watch S3 + Android スマートウォッチシステム", dim: true);
+            "Engineering-Watch v0.2.0\nT-Watch S3 + Android スマートウォッチシステム", dim: true);
         about.TextSize = 12;
-        AddView(about);
+        content.AddView(about);
 
         _status = new TextView(activity) { Text = "", TextSize = 12 };
         _status.SetTextColor(Theme.Accent);
         Theme.SetMargins(_status, activity, 2, 8, 0, 0);
-        AddView(_status);
+        content.AddView(_status);
 
         // ---- 保存済み設定の復元 ----
         _ssid.Text = GetPref("wifi_ssid", "");
