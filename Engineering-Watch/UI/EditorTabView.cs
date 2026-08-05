@@ -44,6 +44,7 @@ public class EditorTabView : LinearLayout
     };
 
     private const int PickImage = 1001;
+    private bool _sending;   // 送信中フラグ (二重タップ防止)
 
     public EditorTabView(Activity activity) : base(activity)
     {
@@ -530,28 +531,42 @@ public class EditorTabView : LinearLayout
 
     private async void SendToWatch()
     {
-        var doc = _editor.Document;
-        byte[]? hour = null, min = null, sec = null;
-        var analog = doc.Parts.FirstOrDefault(p => p.Kind == PartKinds.Analog);
-        if (analog != null)
+        if (_sending) { _status.Text = "送信中です。お待ちください"; return; }
+        if (!BleManager.Instance.Connected) { _status.Text = "未接続です。先に接続してください"; return; }
+        _sending = true;
+        try
         {
-            float r = Math.Max(analog.W, analog.H) / 2f;
-            var col = ParseColor(analog.Color, Color.White);
-            var secCol = ParseColor(
-                string.IsNullOrEmpty(analog.Color2) ? "#FF3B30" : analog.Color2,
-                Color.Rgb(0xFF, 0x3B, 0x30));
-            hour = FaceRenderer.RenderHandPng((int)(r * 0.5f), 7, col);
-            min = FaceRenderer.RenderHandPng((int)(r * 0.72f), 5, col);
-            sec = FaceRenderer.RenderHandPng((int)(r * 0.82f), 2, secCol);
+            var doc = _editor.Document;
+            byte[]? hour = null, min = null, sec = null;
+            var analog = doc.Parts.FirstOrDefault(p => p.Kind == PartKinds.Analog);
+            if (analog != null)
+            {
+                float r = Math.Max(analog.W, analog.H) / 2f;
+                var col = ParseColor(analog.Color, Color.White);
+                var secCol = ParseColor(
+                    string.IsNullOrEmpty(analog.Color2) ? "#FF3B30" : analog.Color2,
+                    Color.Rgb(0xFF, 0x3B, 0x30));
+                hour = FaceRenderer.RenderHandPng((int)(r * 0.5f), 7, col);
+                min = FaceRenderer.RenderHandPng((int)(r * 0.72f), 5, col);
+                sec = FaceRenderer.RenderHandPng((int)(r * 0.82f), 2, secCol);
+            }
+            var bg = FaceRenderer.RenderBackgroundPng(doc);
+            var dyn = FaceRenderer.BuildDynamicJson(doc);
+            _status.Text = "送信中...";
+            BleManager.Instance.SendProgress -= OnSendProgress;
+            BleManager.Instance.SendDone -= OnSendDone;
+            BleManager.Instance.SendProgress += OnSendProgress;
+            BleManager.Instance.SendDone += OnSendDone;
+            await BleManager.Instance.SendFacePackageAsync(bg, hour, min, sec, dyn);
         }
-        var bg = FaceRenderer.RenderBackgroundPng(doc);
-        var dyn = FaceRenderer.BuildDynamicJson(doc);
-        _status.Text = "送信中...";
-        BleManager.Instance.SendProgress -= OnSendProgress;
-        BleManager.Instance.SendDone -= OnSendDone;
-        BleManager.Instance.SendProgress += OnSendProgress;
-        BleManager.Instance.SendDone += OnSendDone;
-        await BleManager.Instance.SendFacePackageAsync(bg, hour, min, sec, dyn);
+        catch (Exception ex)
+        {
+            _status.Text = $"送信エラー: {ex.Message}";
+        }
+        finally
+        {
+            _sending = false;
+        }
     }
 
     private void OnSendProgress(string name, int cur, int total)

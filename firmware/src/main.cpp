@@ -6,6 +6,7 @@
 #include "LV_Helper.h"
 #include "watchface.h"
 #include "notifications.h"
+#include "settings.h"
 #include "ble_server.h"
 #include "wifi_mgr.h"
 #include "screen_mgr.h"
@@ -84,6 +85,7 @@ void loop() {
     ble_poll();
     wifi_mgr_poll();
     notifications_poll();
+    settings_poll();
     screen_mgr_poll();
 
     // BMA423 割り込み (歩数/傾き/ダブルタップ)

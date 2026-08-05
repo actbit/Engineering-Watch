@@ -3,6 +3,7 @@
 #include "app_state.h"
 #include "storage.h"
 #include "notifications.h"
+#include "settings.h"
 #include <ArduinoJson.h>
 
 // LVGL 8.4 (LV_USE_PNG=1) が内蔵する lodepng のデコード関数を使用する
@@ -421,7 +422,13 @@ static void update_date(DynPart& p, const struct tm& t) {
     f.replace("YYYY", "%Y"); f.replace("YY", "%y");
     f.replace("MM", "%m"); f.replace("M", "%m");
     f.replace("DD", "%d"); f.replace("D", "%d");
-    f.replace("W", "%u");
+    // W = 曜日 (LVGL 標準フォントは日本語非対応のため英語略称)
+    // 日=Sun, 月=Mon, 火=Tue, 水=Wed, 木=Thu, 金=Fri, 土=Sat
+    if (f.indexOf('W') >= 0) {
+        static const char* wday_en[] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
+        String wday = wday_en[t.tm_wday % 7];
+        f.replace("W", wday);
+    }
     strftime(buf, sizeof(buf), f.c_str(), &t);
     lv_label_set_text(p.obj, buf);
 }
@@ -600,10 +607,15 @@ void watchface_init() {
         lv_obj_set_size(faceScreen, WATCH_W, WATCH_H);
         lv_obj_clear_flag(faceScreen, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(faceScreen, LV_OBJ_FLAG_CLICKABLE);
-        // タップで通知リスト
-        lv_obj_add_event_cb(faceScreen, [](lv_event_t*) {
-            if (notifications_count() > 0) notifications_open_list();
-        }, LV_EVENT_CLICKED, nullptr);
+        // シングルタップ: 通知リスト / ロングプレス: 設定
+        lv_obj_add_event_cb(faceScreen, [](lv_event_t* e) {
+            lv_event_code_t code = lv_event_get_code(e);
+            if (code == LV_EVENT_CLICKED) {
+                if (notifications_count() > 0) notifications_open_list();
+            } else if (code == LV_EVENT_LONG_PRESSED) {
+                settings_open();
+            }
+        }, LV_EVENT_ALL, nullptr);
     }
     icons_build();
     dsc_from_rgb565_alpha(dscWifi, iconWifi, ICON_SZ, ICON_SZ, LV_IMG_CF_TRUE_COLOR_ALPHA);

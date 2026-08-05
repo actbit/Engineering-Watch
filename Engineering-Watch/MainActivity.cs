@@ -233,6 +233,13 @@ namespace Engineering_Watch
 
         protected override void OnDestroy()
         {
+            // Activity 破棄時に BLE 接続を安全に切断
+            // (自動再接続を無効にしてから切断し、バッテリー消費を防止)
+            try
+            {
+                BleManager.Instance.Disconnect();
+            }
+            catch { }
             base.OnDestroy();
         }
     }

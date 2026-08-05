@@ -35,6 +35,18 @@ static int statusHead = 0, statusCount = 0;
 static int dataHead = 0, dataCount = 0;
 static SemaphoreHandle_t qMutex = nullptr;
 
+// 通知受信キュー (BLE タスクから main ループへ、LVGL スレッドセーフ化)
+struct NotifEntry {
+    String app;
+    String title;
+    String text;
+    uint32_t id;
+    uint32_t when;
+};
+static const int NOTIF_Q = 16;
+static NotifEntry notifQueue[NOTIF_Q];
+static int notifHead = 0, notifCount = 0;
+
 // 受信チャンク状態
 struct RecvFile {
     bool active = false;
@@ -129,7 +141,16 @@ static void handle_wf_frame(const uint8_t* p, size_t len) {
 
     switch (type) {
     case 0x01: {  // WF_BEGIN
-        if (recvFile.active) { recvFile.fp.close(); recvFile.active = false; }
+        // 前回の転送が途中で残っていた場合、安全にクローズして削除
+        if (recvFile.active) {
+            recvFile.fp.close();
+            recvFile.active = false;
+            // 部分的に書き込まれたファイルを削除
+            char oldPath[64];
+            snprintf(oldPath, sizeof(oldPath), "/face/%d", recvFile.fileId);
+            FFat.remove(oldPath);
+            Serial.printf("[ble] cleaned up partial file: %s\n", oldPath);
+        }
         if (dlen == 0 || dlen > 32) { wf_error("bad_name"); return; }
         char name[40];
         memcpy(name, data, dlen);
@@ -150,11 +171,20 @@ static void handle_wf_frame(const uint8_t* p, size_t len) {
     }
     case 0x02: {  // WF_DATA
         if (!recvFile.active || recvFile.fileId != fileId) return;
-        if (recvFile.offset + dlen > recvFile.total) return;
+        if (dlen == 0) return;   // 空データは無視
+        if (recvFile.offset + dlen > recvFile.total) {
+            wf_error("overflow");
+            recvFile.fp.close();
+            recvFile.active = false;
+            return;
+        }
         recvFile.fp.seek(recvFile.offset);
         if (recvFile.fp.write(data, dlen) != dlen) { wf_error("write_failed"); return; }
         recvFile.offset += dlen;
         recvFile.crc = storage_crc32_update(recvFile.crc, data, dlen);
+        // 進捗ログ (10チャンクごと)
+        if ((recvFile.offset / dlen) % 10 == 0)
+            Serial.printf("[ble] data %u/%u\n", recvFile.offset, recvFile.total);
         break;
     }
     case 0x03: {  // WF_END
@@ -187,10 +217,15 @@ static void handle_wf_frame(const uint8_t* p, size_t len) {
 }
 
 // ============================================================
-// 通知受信 (FF11)
+// 通知受信 (FF11) — キューに積んで main ループで処理 (LVGL スレッドセーフ化)
 // ============================================================
 static void handle_notif(const uint8_t* p, size_t len) {
     if (!p || len == 0) return;
+    // 通知サイズ検証 (PROTOCOL.md: 512B以内)
+    if (len > 512) {
+        Serial.printf("[notif] too large: %u bytes (max 512)\n", len);
+        return;
+    }
     JsonDocument doc;
     if (deserializeJson(doc, p, len)) return;
     String appN = doc["app"] | "";
@@ -199,14 +234,30 @@ static void handle_notif(const uint8_t* p, size_t len) {
     uint32_t id = doc["id"] | 0;
     uint32_t when = doc["when"] | 0;
     if (appN.length() == 0 && title.length() == 0 && text.length() == 0) return;
-    notifications_add(appN, title, text, id, when);
-    // 振動 + 画面ON (通知バナーは notifications 側で表示)
-    screen_on();
-    watch.setWaveform(0, 78);
-    char buf[96];
-    snprintf(buf, sizeof(buf), "{\"type\":\"notif\",\"state\":\"shown\",\"id\":%u}", id);
-    ble_notify_status(buf);
-    Serial.printf("[notif] %s: %s %s\n", appN.c_str(), title.c_str(), text.c_str());
+    // キューに積む (BLE スタックスレッドから安全に呼び出し可能)
+    if (qMutex) xSemaphoreTake(qMutex, portMAX_DELAY);
+    if (notifCount < NOTIF_Q) {
+        int idx = (notifHead + notifCount) % NOTIF_Q;
+        notifQueue[idx].app = appN;
+        notifQueue[idx].title = title;
+        notifQueue[idx].text = text;
+        notifQueue[idx].id = id;
+        notifQueue[idx].when = when;
+        notifCount++;
+    } else {
+        // キュー満杯: 古いエントリを上書き
+        int idx = notifHead;
+        notifQueue[idx].app = appN;
+        notifQueue[idx].title = title;
+        notifQueue[idx].text = text;
+        notifQueue[idx].id = id;
+        notifQueue[idx].when = when;
+        notifHead = (notifHead + 1) % NOTIF_Q;
+    }
+    if (qMutex) xSemaphoreGive(qMutex);
+    // 振動 + 画面ON もキューで処理 (LVGL スレッドセーフ化)
+    // screen_on() と setWaveform は ble_poll() で実行
+    Serial.printf("[notif-queued] %s: %s %s\n", appN.c_str(), title.c_str(), text.c_str());
 }
 
 // ============================================================
@@ -222,10 +273,13 @@ static void handle_control(const String& json) {
     if (!strcmp(cmd, "time_sync")) {
         int64_t utc = doc["utc"] | (int64_t)0;
         int32_t tz = doc["tz"] | app.tzOffsetMin;
+        bool dst = doc["dst"] | false;
         if (utc > 0) {
             app.tzOffsetMin = tz;
             nvs_save_i32(NVS_TZ_OFFSET, tz);
-            time_t local = (time_t)(utc + (int64_t)tz * 60);
+            // DST オフセットを加算 (通常 +60 分)
+            int32_t totalOffset = tz + (dst ? 60 : 0);
+            time_t local = (time_t)(utc + (int64_t)totalOffset * 60);
             struct tm t;
             gmtime_r(&local, &t);
             watch.setDateTime(t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
@@ -233,7 +287,7 @@ static void handle_control(const String& json) {
             timeval tv = { local, 0 };
             settimeofday(&tv, nullptr);
             ble_notify_status("{\"type\":\"time\",\"state\":\"ok\"}");
-            Serial.println("[ble] time synced");
+            Serial.printf("[ble] time synced (tz=%d dst=%d)\n", tz, dst);
         }
     } else if (!strcmp(cmd, "wifi_on")) {
         String ssid = doc["ssid"] | "";
@@ -253,8 +307,17 @@ static void handle_control(const String& json) {
         }
     } else if (!strcmp(cmd, "vibrate")) {
         int ms = doc["ms"] | 300;
-        watch.setWaveform(0, 78);
-        Serial.printf("[ble] vibrate %dms\n", ms);
+        // DRV2605 の waveform を使用して指定時間振動
+        // effect 78 = strong buzz (100%)
+        // 複数回再生して長さを調整
+        int repeats = ms / 100;  // 1エフェクト約100ms
+        if (repeats < 1) repeats = 1;
+        if (repeats > 10) repeats = 10;
+        for (int i = 0; i < repeats; i++) {
+            watch.setWaveform(i, 78);
+        }
+        watch.setWaveform(repeats, 0);  // 終端
+        Serial.printf("[ble] vibrate %dms (repeats=%d)\n", ms, repeats);
     } else if (!strcmp(cmd, "reboot")) {
         Serial.println("[ble] reboot command");
         delay(100);
@@ -301,6 +364,15 @@ class ServerCallbacks : public BLEServerCallbacks {
         connected = false;
         app.bleConnected = false;
         Serial.println("[ble] disconnected");
+        // 転送中のファイルがあれば安全にクローズ
+        if (recvFile.active) {
+            recvFile.fp.close();
+            recvFile.active = false;
+            Serial.println("[ble] recvFile cleaned up on disconnect");
+        }
+        // 保留コマンドをクリア
+        ctlPending = false;
+        ctlBuf = "";
         pServer->getAdvertising()->start();
     }
 };
@@ -404,6 +476,24 @@ void ble_poll() {
             chWd->setValue((uint8_t*)s.c_str(), s.length());
             chWd->notify();
         }
+    }
+    // 通知キュー処理 (main ループで LVGL を安全に操作)
+    while (notifCount > 0) {
+        NotifEntry ne;
+        if (qMutex) xSemaphoreTake(qMutex, portMAX_DELAY);
+        ne = notifQueue[notifHead];
+        notifHead = (notifHead + 1) % NOTIF_Q;
+        notifCount--;
+        if (qMutex) xSemaphoreGive(qMutex);
+        // main ループから LVGL を呼び出し (スレッドセーフ)
+        notifications_add(ne.app, ne.title, ne.text, ne.id, ne.when);
+        // 振動 + 画面ON (main ループから安全に呼び出し)
+        screen_on();
+        watch.setWaveform(0, 78);
+        char buf[96];
+        snprintf(buf, sizeof(buf), "{\"type\":\"notif\",\"state\":\"shown\",\"id\":%u}", ne.id);
+        ble_notify_status(buf);
+        Serial.printf("[notif] %s: %s %s\n", ne.app.c_str(), ne.title.c_str(), ne.text.c_str());
     }
     // コマンド処理
     if (ctlPending) {

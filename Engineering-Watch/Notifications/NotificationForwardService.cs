@@ -44,6 +44,10 @@ public class NotificationForwardService : NotificationListenerService
     {
         try
         {
+            // 通知転送が無効化されている場合はスキップ
+            var prefs = Application.Context.GetSharedPreferences("ewatch", FileCreationMode.Private);
+            if (!prefs.GetBoolean("notif_forward", true)) return;
+
             if (sbn?.Notification?.Extras == null) return;
             var extras = sbn.Notification.Extras;
             string title = extras.GetString("android.title") ?? "";

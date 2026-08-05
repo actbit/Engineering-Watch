@@ -106,6 +106,39 @@ public class ConnectionTabView : LinearLayout
         ctlRow.AddView(wakeBtn);
         content.AddView(ctlRow);
 
+        // 追加コントロール: 探す / 通知消去 / 再起動
+        var ctlRow2 = new LinearLayout(activity) { Orientation = Orientation.Horizontal };
+        var findBtn = Theme.Chip(activity, "探す (振動)");
+        findBtn.Click += (_, _) =>
+        {
+            BleManager.Instance.SendControl("{\"cmd\":\"vibrate\",\"ms\":2000}");
+            AppendLog("時計を探しています...");
+        };
+        var clearBtn = Theme.Chip(activity, "通知全消去");
+        clearBtn.Click += (_, _) =>
+        {
+            BleManager.Instance.SendControl("{\"cmd\":\"clear_notifs\"}");
+            AppendLog("通知を全消去しました");
+        };
+        var rebootBtn = Theme.Chip(activity, "再起動");
+        rebootBtn.Click += (_, _) =>
+        {
+            new AlertDialog.Builder(_activity)
+                .SetTitle("時計を再起動")
+                .setMessage("本当に再起動しますか?")
+                .SetPositiveButton("再起動", (_, _) =>
+                {
+                    BleManager.Instance.SendControl("{\"cmd\":\"reboot\"}");
+                    AppendLog("再起動コマンドを送信");
+                })
+                .SetNegativeButton("キャンセル", (_, _) => { })
+                .Show();
+        };
+        ctlRow2.AddView(findBtn);
+        ctlRow2.AddView(clearBtn);
+        ctlRow2.AddView(rebootBtn);
+        content.AddView(ctlRow2);
+
         var brRow = new LinearLayout(activity) { Orientation = Orientation.Horizontal };
         brRow.SetGravity(GravityFlags.CenterVertical);
         var brLabel = Theme.Label(activity, "明るさ", dim: true);
@@ -256,6 +289,7 @@ public class ConnectionTabView : LinearLayout
             {
                 using var d = JsonDocument.Parse(_lastStatus);
                 AppendField(d, "wifi", "WiFi");
+                AppendField(d, "ver", "FW");
             }
             catch { }
         }
